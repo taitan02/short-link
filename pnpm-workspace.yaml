@@ -2,7 +2,14 @@ packages:
   - apps/*
   - libs/*
 
+# Downloads the schema engine binary used by `prisma migrate`.
+onlyBuiltDependencies:
+  - '@prisma/engines'
+  - prisma
+
 # Both ship prebuilt native binaries via optional deps; their install scripts are not needed.
 ignoredBuiltDependencies:
   - '@parcel/watcher'
   - unrs-resolver
+  # Install-time usage telemetry pulled in by swagger-ui-dist.
+  - '@scarf/scarf'

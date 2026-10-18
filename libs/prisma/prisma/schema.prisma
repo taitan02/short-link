@@ -1,0 +1,43 @@
+generator client {
+  provider     = "prisma-client"
+  output       = "../src/generated/prisma"
+  moduleFormat = "cjs"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model User {
+  // UUIDv7 is time-ordered, so inserts append to the PK index instead of scattering like v4.
+  id           String      @id @default(uuid(7)) @db.Uuid
+  // Stored lowercased by the application; uniqueness is therefore case-insensitive.
+  email        String      @unique @db.VarChar(254)
+  passwordHash String      @map("password_hash")
+  createdAt    DateTime    @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt    DateTime    @updatedAt @map("updated_at") @db.Timestamptz(3)
+  links        ShortLink[]
+
+  @@map("users")
+}
+
+model ShortLink {
+  id          String    @id @default(uuid(7)) @db.Uuid
+  // Restrict: account deletion is not a feature yet, and must decide what happens to codes
+  // that are already shared publicly before it becomes one.
+  userId      String    @map("user_id") @db.Uuid
+  // Case-sensitive. The unique index is the redirect lookup path and the only real guarantee
+  // against collisions; covering soft-deleted rows means a code is never handed to a new owner.
+  code        String    @unique @db.VarChar(32)
+  originalUrl String    @map("original_url") @db.VarChar(2048)
+  isActive    Boolean   @default(true) @map("is_active")
+  expiresAt   DateTime? @map("expires_at") @db.Timestamptz(3)
+  deletedAt   DateTime? @map("deleted_at") @db.Timestamptz(3)
+  createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt   DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
+  user        User      @relation(fields: [userId], references: [id], onDelete: Restrict)
+
+  // Serves the default dashboard listing (one user's links, newest first) as an index range scan.
+  @@index([userId, createdAt(sort: Desc)])
+  @@map("short_links")
+}

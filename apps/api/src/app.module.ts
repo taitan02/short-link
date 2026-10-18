@@ -1,9 +1,12 @@
 import { randomUUID } from 'node:crypto';
 import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
+import { PrismaModule } from '@short-link/prisma';
 import { LoggerModule } from 'nestjs-pino';
 import { Env, validateEnv } from './config/env';
 import { HealthModule } from './health/health.module';
+import { LinksModule } from './links/links.module';
+import { RedirectModule } from './redirect/redirect.module';
 
 // The header is client-controlled and ends up in every log line, so anything that could
 // inject into logs or blow up their size is replaced with a fresh id.
@@ -50,7 +53,14 @@ const REQUEST_ID_PATTERN = /^[\w-]{1,128}$/;
         },
       }),
     }),
+    PrismaModule.forRootAsync({
+      inject: [ConfigService],
+      useFactory: (config: ConfigService<Env, true>) => config.get('DATABASE_URL', { infer: true }),
+    }),
     HealthModule,
+    LinksModule,
+    // Last: its GET /:code catch-all must not shadow other single-segment routes.
+    RedirectModule,
   ],
 })
 export class AppModule {}

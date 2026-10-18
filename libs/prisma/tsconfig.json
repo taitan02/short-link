@@ -1,0 +1,12 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    // Classic CommonJS turns the generated client's `await import()` (used to load the query
+    // compiler) into require(). Under node16 it stays a real dynamic import, which Jest cannot
+    // execute without --experimental-vm-modules.
+    "module": "commonjs",
+    "moduleResolution": "node10",
+    "outDir": "dist"
+  },
+  "include": ["src", "prisma.config.ts"]
+}
