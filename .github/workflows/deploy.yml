@@ -1,0 +1,68 @@
+name: Deploy
+
+# Manual by design: a person picks the image tags, and the `production` environment can require
+# a reviewer's approval before the job runs. The server-side script backs up the database,
+# applies migrations (which must be backward compatible) and recreates the containers.
+on:
+  workflow_dispatch:
+    inputs:
+      api_tag:
+        description: API image tag (e.g. sha-abc1234); empty keeps the running one
+        type: string
+      worker_tag:
+        description: Worker image tag; empty keeps the running one
+        type: string
+      migrate_tag:
+        description: Migrate image tag; empty keeps the current one
+        type: string
+
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-24.04
+    environment: production
+    timeout-minutes: 30
+    env:
+      REGISTRY: ghcr.io/${{ github.repository_owner }}
+      API_TAG: ${{ inputs.api_tag }}
+      WORKER_TAG: ${{ inputs.worker_tag }}
+      MIGRATE_TAG: ${{ inputs.migrate_tag }}
+    steps:
+      - name: Validate tags
+        run: |
+          for tag in "$API_TAG" "$WORKER_TAG" "$MIGRATE_TAG"; do
+            [[ -z "$tag" || "$tag" =~ ^sha-[0-9a-f]{7,40}$ ]] || { echo "Invalid tag: $tag"; exit 1; }
+          done
+      - name: Configure SSH
+        env:
+          SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+        run: |
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/id_deploy && chmod 600 ~/.ssh/id_deploy
+          # Pinned host key: no trust-on-first-use.
+          printf '%s\n' "$KNOWN_HOSTS" > ~/.ssh/known_hosts
+      - name: Deploy over SSH
+        env:
+          TARGET: ${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }}
+          APP_DIR: ${{ vars.DEPLOY_APP_DIR || '/opt/short-link' }}
+        run: |
+          ssh -i ~/.ssh/id_deploy -o BatchMode=yes "$TARGET" \
+            APP_DIR="$APP_DIR" REGISTRY="$REGISTRY" \
+            API_TAG="$API_TAG" WORKER_TAG="$WORKER_TAG" MIGRATE_TAG="$MIGRATE_TAG" \
+            'bash -s' <<'REMOTE'
+          set -euo pipefail
+          cd "$APP_DIR"
+          git pull --ff-only
+          set_image() { [[ -n "$2" ]] && sed -i "s#^$1=.*#$1=$REGISTRY/$3:$2#" deploy/.env.production || true; }
+          set_image API_IMAGE "$API_TAG" short-link-api
+          set_image WORKER_IMAGE "$WORKER_TAG" short-link-worker
+          set_image MIGRATE_IMAGE "$MIGRATE_TAG" short-link-migrate
+          deploy/deploy.sh
+          REMOTE

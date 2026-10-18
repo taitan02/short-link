@@ -1,0 +1,15 @@
+# Terminates TLS (automatic certificates for a public DOMAIN; an internal CA for "localhost")
+# and forwards everything to the API. The API trusts exactly one proxy hop (TRUST_PROXY_HOPS=1).
+{$DOMAIN} {
+	encode gzip
+
+	# Metrics stay internal even if someone maps a route to them later.
+	@internal path /metrics*
+	respond @internal 404
+
+	reverse_proxy api:3000 {
+		header_up X-Request-Id {http.request.header.X-Request-Id}
+		health_uri /health/ready
+		health_interval 10s
+	}
+}

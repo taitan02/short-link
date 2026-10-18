@@ -1,0 +1,15 @@
+# Only sources go into the build context; everything is installed and built inside the image.
+**/node_modules
+**/dist
+**/coverage
+**/*.tsbuildinfo
+libs/prisma/src/generated
+.git
+.github
+.env
+.env.*
+!.env.example
+docs
+test/load
+*.md
+!README.md

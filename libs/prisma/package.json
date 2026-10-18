@@ -4,6 +4,11 @@
   "private": true,
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
+  "files": [
+    "dist",
+    "prisma",
+    "prisma.config.ts"
+  ],
   "scripts": {
     "prepare": "prisma generate && tsc -p tsconfig.build.json",
     "build": "prisma generate && tsc -p tsconfig.build.json",

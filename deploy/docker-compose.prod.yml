@@ -1,0 +1,151 @@
+# Single-host production stack. Usage (from the repository root on the server):
+#   docker compose -f deploy/docker-compose.prod.yml --env-file deploy/.env.production up -d
+# Migrations are NOT applied by `up`; run them explicitly (deploy/deploy.sh does, after a backup):
+#   docker compose -f deploy/docker-compose.prod.yml --env-file deploy/.env.production run --rm migrate
+# Distinct from the dev stack's project name, so both can coexist on one machine.
+name: short-link-prod
+
+x-app: &app
+  restart: unless-stopped
+  init: true
+  read_only: true
+  tmpfs: [/tmp]
+  cap_drop: [ALL]
+  security_opt: ['no-new-privileges:true']
+  # Longer than the slowest request or job, so SIGTERM can drain in-flight work.
+  stop_grace_period: 30s
+  logging:
+    driver: json-file
+    options: { max-size: '20m', max-file: '5' }
+
+x-db-env: &db-env
+  DATABASE_URL: postgresql://shortlink:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}@postgres:5432/shortlink
+
+services:
+  caddy:
+    image: caddy:2.11.1-alpine
+    restart: unless-stopped
+    ports:
+      - '${HTTP_PORT:-80}:80'
+      - '${HTTPS_PORT:-443}:443'
+      - '${HTTPS_PORT:-443}:443/udp'
+    environment:
+      DOMAIN: ${DOMAIN:?set DOMAIN}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on:
+      api:
+        condition: service_healthy
+
+  api:
+    <<: *app
+    image: ${API_IMAGE:?set API_IMAGE}
+    environment:
+      <<: *db-env
+      NODE_ENV: production
+      PORT: 3000
+      METRICS_PORT: 9464
+      TRUST_PROXY_HOPS: 1
+      PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:?set PUBLIC_BASE_URL}
+      JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET}
+      REDIS_URL: redis://redis-cache:6379
+      QUEUE_REDIS_URL: redis://redis-queue:6379
+      CORS_ORIGINS: ${CORS_ORIGINS:-}
+      BLOCKED_DESTINATION_HOSTS: ${BLOCKED_DESTINATION_HOSTS:-}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis-cache: { condition: service_healthy }
+      redis-queue: { condition: service_healthy }
+
+  worker:
+    <<: *app
+    image: ${WORKER_IMAGE:?set WORKER_IMAGE}
+    environment:
+      <<: *db-env
+      NODE_ENV: production
+      METRICS_PORT: 9465
+      QUEUE_REDIS_URL: redis://redis-queue:6379
+      WORKER_CONCURRENCY: ${WORKER_CONCURRENCY:-10}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis-queue: { condition: service_healthy }
+
+  migrate:
+    image: ${MIGRATE_IMAGE:?set MIGRATE_IMAGE}
+    profiles: [tools]
+    environment:
+      <<: *db-env
+    depends_on:
+      postgres: { condition: service_healthy }
+
+  postgres:
+    image: postgres:18.6-alpine
+    restart: unless-stopped
+    command:
+      - postgres
+      - -c
+      - shared_preload_libraries=pg_stat_statements
+      - -c
+      - random_page_cost=1.1
+      - -c
+      - log_min_duration_statement=250
+    environment:
+      POSTGRES_USER: shortlink
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
+      POSTGRES_DB: shortlink
+    volumes:
+      - postgres-data:/var/lib/postgresql
+      - ../infrastructure/docker/postgres/prod-init:/docker-entrypoint-initdb.d:ro
+    stop_grace_period: 60s
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U shortlink -d shortlink']
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  # Disposable: losing it costs cache misses, so no persistence and LRU eviction when full.
+  redis-cache:
+    image: redis:8.10.1-alpine
+    restart: unless-stopped
+    command:
+      [
+        redis-server,
+        --save,
+        '',
+        --appendonly,
+        'no',
+        --maxmemory,
+        256mb,
+        --maxmemory-policy,
+        allkeys-lru,
+      ]
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  # Holds queued clicks: never evict (BullMQ requires noeviction), persist with AOF (fsync every
+  # second: a crash can lose up to ~1 s of enqueued clicks, consistent with best-effort analytics).
+  redis-queue:
+    image: redis:8.10.1-alpine
+    restart: unless-stopped
+    command:
+      [redis-server, --appendonly, 'yes', --appendfsync, everysec, --maxmemory-policy, noeviction]
+    volumes:
+      - redis-queue-data:/data
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  postgres-data:
+  redis-queue-data:
+  caddy-data:
+  caddy-config:

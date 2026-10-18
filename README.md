@@ -3,9 +3,10 @@
 URL shortener with asynchronous click analytics. NestJS modular monolith + a separate analytics
 worker process, PostgreSQL, Redis, BullMQ.
 
-> Status: **Phase 5** — authentication, link management, cached redirects, rate limiting,
-> asynchronous click analytics, Prometheus metrics, load-tested and failure-tested
-> ([performance notes](docs/performance.md), [operations runbook](docs/operations.md)).
+> Status: **Phase 6** — authentication, link management, cached redirects, rate limiting,
+> asynchronous click analytics, metrics, load- and failure-tested, Docker images, CI/CD and
+> single-VPS deployment ([deployment](docs/deployment.md), [performance](docs/performance.md),
+> [operations runbook](docs/operations.md)).
 
 ## Requirements
 
@@ -24,7 +25,10 @@ pnpm --filter @short-link/api start:dev
 pnpm --filter @short-link/analytics-worker start:dev   # in a second terminal
 ```
 
-- API docs: `http://localhost:3000/docs`
+- API docs: `http://localhost:3000/docs` (the port is `PORT` in `.env`)
+- Metrics: `http://localhost:9464/metrics` (API), `http://localhost:9465/metrics` (worker)
+- The apps import the workspace libs from their `dist/`: after editing anything in `libs/`, run
+  `pnpm build` (or `pnpm --filter <lib> build`) before restarting.
 - Health: `/health/live` (process up), `/health/ready` (database reachable; Redis reported
   but not required, see below)
 
@@ -135,8 +139,8 @@ GET /api/links/:id/analytics ──► reads link_daily_stats only
 
 ## Observability
 
-- Prometheus metrics on an internal port per process (`METRICS_PORT`: API 9464, worker 9465 in
-  `.env.example`), never on the public port: latency per route template, cache hit/miss/error,
+- Prometheus metrics on an internal port per process (`METRICS_PORT`; `start:dev` defaults to
+  9464 for the API and 9465 for the worker), never on the public port: latency per route template, cache hit/miss/error,
   dropped and pending click enqueues, queue depth, job outcomes, plus Node runtime metrics.
 - Structured JSON logs with request ids (`X-Request-Id` is propagated or generated).
 - Health: API `/health/live`, `/health/ready`; worker `/health/live`, `/health/ready` on its
@@ -151,6 +155,23 @@ slow queries, queue backlog, failed jobs, memory growth and click-count discrepa
 
 Load tests run against a separately seeded database (1M links, 1M raw clicks) so they never
 touch dev or test data. Steps, results and query plans: [docs/performance.md](docs/performance.md).
+
+## Docker and deployment
+
+```bash
+docker build --target api -t short-link-api .        # also: --target worker, --target migrate
+docker compose -f deploy/docker-compose.prod.yml --env-file deploy/.env.production up -d
+```
+
+- One multi-stage `Dockerfile`, three targets sharing a build stage; non-root, read-only
+  runtime, production dependencies only (API image node_modules: 180 MB).
+- `deploy/docker-compose.prod.yml`: Caddy (automatic HTTPS) → API, worker, PostgreSQL, a
+  disposable LRU Redis for the cache and a persistent `noeviction` Redis for the queue.
+- `deploy/deploy.sh` backs up, migrates (explicitly, never on `up`), then recreates the apps.
+- GitHub Actions: CI on every PR, image release to GHCR for the apps a change affects, manual
+  deploy over SSH behind an approval gate.
+
+Details, migration rules, rollback, backup and restore: [docs/deployment.md](docs/deployment.md).
 
 ## Configuration
 

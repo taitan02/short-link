@@ -7,7 +7,9 @@ cd "$(dirname "$0")/../.."
 LOG_DIR=${LOG_DIR:-/tmp/short-link-load}
 
 if [[ "${1:-}" == "stop" ]]; then
-  for f in "$LOG_DIR"/*.pid; do [[ -f "$f" ]] && kill -TERM "$(cat "$f")" 2>/dev/null || true; done
+  for f in "$LOG_DIR"/*.pid; do
+    if [[ -f "$f" ]]; then kill -TERM "$(cat "$f")" 2>/dev/null || true; fi
+  done
   exit 0
 fi
 

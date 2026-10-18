@@ -2,10 +2,13 @@
   "name": "@short-link/api",
   "version": "0.0.0",
   "private": true,
+  "files": [
+    "dist"
+  ],
   "scripts": {
     "build": "nest build",
     "start": "node dist/main.js",
-    "start:dev": "nest start --watch --exec \"node --env-file-if-exists=../../.env\"",
+    "start:dev": "METRICS_PORT=${METRICS_PORT:-9464} nest start --watch --exec \"node --env-file-if-exists=../../.env\"",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "test": "jest",
     "test:e2e": "jest --config test/jest-e2e.json --runInBand"

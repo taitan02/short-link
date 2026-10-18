@@ -3,7 +3,7 @@ name: short-link
 
 services:
   postgres:
-    image: postgres:18-alpine
+    image: postgres:18.6-alpine
     # pg_stat_statements: per-query timing for the slow-query runbook (docs/operations.md).
     # random_page_cost 1.1 suits SSDs; the default 4 made the planner sort deep listing pages
     # instead of walking the index (docs/performance.md). Statements over 250 ms are logged.
@@ -31,7 +31,7 @@ services:
       retries: 10
 
   redis:
-    image: redis:8-alpine
+    image: redis:8.10.1-alpine
     # noeviction + AOF because BullMQ (Phase 4) shares this instance in dev and must never lose
     # or silently evict queue keys. Every cache and rate-limit key carries a TTL, so they still
     # expire on their own. Production splits cache and queue (see README).
