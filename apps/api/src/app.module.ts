@@ -10,11 +10,13 @@ import { LoggerModule } from 'nestjs-pino';
 import { AnalyticsModule } from './analytics/analytics.module';
 import { AuthModule } from './auth/auth.module';
 import { JwtAuthGuard } from './auth/jwt-auth.guard';
+import { HttpShutdown } from './common/http-shutdown';
 import { RedisThrottlerStorage } from './common/redis-throttler.storage';
 import { AppThrottlerGuard } from './common/throttler.guard';
 import { Env, validateEnv } from './config/env';
 import { HealthModule } from './health/health.module';
 import { LinksModule } from './links/links.module';
+import { ApiMetrics, MetricsModule } from './metrics/metrics.module';
 import { RedirectModule } from './redirect/redirect.module';
 import { REDIS, RedisModule } from './redis/redis.module';
 import { UsersModule } from './users/users.module';
@@ -66,8 +68,11 @@ const REQUEST_ID_PATTERN = /^[\w-]{1,128}$/;
     }),
     PrismaModule.forRootAsync({
       inject: [ConfigService],
-      useFactory: (config: ConfigService<Env, true>) => config.get('DATABASE_URL', { infer: true }),
+      useFactory: (config: ConfigService<Env, true>) => ({
+        url: config.get('DATABASE_URL', { infer: true }),
+      }),
     }),
+    MetricsModule,
     RedisModule,
     BullModule.forRootAsync({
       inject: [ConfigService],
@@ -77,20 +82,24 @@ const REQUEST_ID_PATTERN = /^[\w-]{1,128}$/;
         return {
           connection: {
             url,
-            // Producer side: fail an enqueue immediately while Redis is unreachable instead of
-            // queueing it in memory; see ClickRecorder for why that is acceptable.
+            // Producer side: once connected, an enqueue fails immediately while Redis is down
+            // instead of queueing in memory. (Before the first connect, BullMQ waits instead;
+            // ClickRecorder caps how many clicks may wait.)
             enableOfflineQueue: false,
             maxRetriesPerRequest: 1,
+            // BullMQ's default reconnect backoff grows to 20 s, so after a short outage clicks
+            // kept being dropped for up to 20 s more (measured: docs/performance.md).
+            retryStrategy: (times: number) => Math.min(times * 200, 1_000),
           },
         };
       },
     }),
     // Counters live in Redis so limits hold across API replicas.
     ThrottlerModule.forRootAsync({
-      inject: [REDIS],
-      useFactory: (redis: Redis) => ({
+      inject: [REDIS, ApiMetrics],
+      useFactory: (redis: Redis, metrics: ApiMetrics) => ({
         throttlers: [{ name: 'default', ttl: minutes(1), limit: 300 }],
-        storage: new RedisThrottlerStorage(redis),
+        storage: new RedisThrottlerStorage(redis, metrics.rateLimitStorageErrors),
       }),
     }),
     HealthModule,
@@ -103,6 +112,7 @@ const REQUEST_ID_PATTERN = /^[\w-]{1,128}$/;
   ],
   // Order matters: authentication first, so the throttler can key on the user.
   providers: [
+    HttpShutdown,
     { provide: APP_GUARD, useExisting: JwtAuthGuard },
     { provide: APP_GUARD, useClass: AppThrottlerGuard },
   ],

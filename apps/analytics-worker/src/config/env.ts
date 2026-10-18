@@ -6,10 +6,12 @@ const envSchema = z.object({
   DATABASE_URL: z.url({ protocol: /^postgres(ql)?$/ }),
   QUEUE_REDIS_URL: z.url({ protocol: /^rediss?$/ }),
   // Jobs processed in parallel by this process. Each holds a DB connection for one short
-  // transaction, so keep it below the Prisma pool size.
+  // transaction; the pool is sized from this. Mind the server's max_connections across replicas.
   WORKER_CONCURRENCY: z.coerce.number().int().min(1).max(100).default(10),
   // Raw click_events older than this are deleted; daily aggregates are kept.
   CLICK_RETENTION_DAYS: z.coerce.number().int().min(1).max(3_650).default(90),
+  // /metrics and /health/* on an internal port. Unset disables the listener.
+  METRICS_PORT: z.coerce.number().int().min(1).max(65535).optional(),
 });
 
 export type Env = z.infer<typeof envSchema>;

@@ -5,6 +5,7 @@ import Redis from 'ioredis';
 import request from 'supertest';
 import { AppModule } from '../src/app.module';
 import { configureApp } from '../src/app.setup';
+import { ApiMetrics } from '../src/metrics/metrics.module';
 import { REDIS } from '../src/redis/redis.module';
 
 export async function createTestApp(
@@ -79,4 +80,16 @@ export async function registerAndLogin(app: NestExpressApplication, email?: stri
     token: (login.body as { accessToken: string }).accessToken,
     credentials,
   };
+}
+
+/** Sum of a metric's samples matching the given labels. */
+export async function counterValue(
+  metrics: ApiMetrics,
+  name: string,
+  labels: Record<string, string> = {},
+): Promise<number> {
+  const metric = await metrics.registry.getSingleMetric(name)?.get();
+  return (metric?.values ?? [])
+    .filter((v) => Object.entries(labels).every(([key, value]) => v.labels[key] === value))
+    .reduce((sum, v) => sum + v.value, 0);
 }

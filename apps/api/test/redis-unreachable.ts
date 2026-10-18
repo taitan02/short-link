@@ -2,3 +2,5 @@
 // is first loaded, so this has to run before that import. Port 1 refuses connections at once.
 process.env.REDIS_URL = 'redis://127.0.0.1:1/15';
 process.env.QUEUE_REDIS_URL = 'redis://127.0.0.1:1/15';
+// Low enough for a test to fill the backlog of clicks waiting on the dead queue.
+process.env.CLICK_ENQUEUE_MAX_PENDING = '2';

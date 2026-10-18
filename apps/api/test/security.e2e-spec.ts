@@ -1,4 +1,5 @@
 import { NestExpressApplication } from '@nestjs/platform-express';
+import { Prisma, PrismaService } from '@short-link/prisma';
 import request from 'supertest';
 import { RedirectService } from '../src/redirect/redirect.service';
 import { createTestApp } from './utils';
@@ -72,5 +73,38 @@ describe('Unexpected errors (e2e)', () => {
   it('answers 500 with a generic body that leaks nothing', async () => {
     const res = await request(app.getHttpServer()).get('/abc1234').expect(500);
     expect(res.body).toEqual({ statusCode: 500, message: 'Internal server error' });
+  });
+});
+
+describe('Database outage (e2e)', () => {
+  let app: NestExpressApplication;
+
+  beforeAll(async () => {
+    const refused = new Prisma.PrismaClientKnownRequestError('connect ECONNREFUSED', {
+      code: 'ECONNREFUSED',
+      clientVersion: '7.10.1',
+      meta: { modelName: 'ShortLink' },
+    });
+    ({ app } = await createTestApp((builder) =>
+      builder.overrideProvider(PrismaService).useValue({
+        shortLink: { findUnique: () => Promise.reject(refused) },
+        $queryRaw: () => Promise.reject(refused),
+        $disconnect: () => Promise.resolve(),
+      }),
+    ));
+  });
+
+  afterAll(async () => {
+    await app.close();
+  });
+
+  it('answers 503 with Retry-After instead of 500 when a redirect needs the database', async () => {
+    const res = await request(app.getHttpServer()).get('/nocache1').expect(503);
+    expect(res.headers['retry-after']).toBe('5');
+    expect(res.body).toEqual({
+      statusCode: 503,
+      message: 'Service temporarily unavailable',
+      error: 'Service Unavailable',
+    });
   });
 });

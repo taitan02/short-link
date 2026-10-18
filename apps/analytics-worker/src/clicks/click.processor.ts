@@ -1,18 +1,23 @@
 import { OnWorkerEvent, Processor, WorkerHost } from '@nestjs/bullmq';
-import { Logger, OnApplicationBootstrap } from '@nestjs/common';
+import { BeforeApplicationShutdown, Logger, OnApplicationBootstrap } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { CLICK_QUEUE, clickEventV1 } from '@short-link/contracts';
 import { Job, UnrecoverableError } from 'bullmq';
 import { Env } from '../config/env';
+import { WorkerMetrics } from '../metrics';
 import { ClickIngestService, IngestResult, UnknownLinkError } from './click-ingest.service';
 
 @Processor(CLICK_QUEUE)
-export class ClickProcessor extends WorkerHost implements OnApplicationBootstrap {
+export class ClickProcessor
+  extends WorkerHost
+  implements OnApplicationBootstrap, BeforeApplicationShutdown
+{
   private readonly logger = new Logger(ClickProcessor.name);
 
   constructor(
     private readonly ingest: ClickIngestService,
     private readonly config: ConfigService<Env, true>,
+    private readonly metrics: WorkerMetrics,
   ) {
     super();
   }
@@ -22,6 +27,12 @@ export class ClickProcessor extends WorkerHost implements OnApplicationBootstrap
     this.worker.concurrency = this.config.get('WORKER_CONCURRENCY', { infer: true });
   }
 
+  // Stop taking jobs and let in-flight ones finish while the DB pool is still open (it closes
+  // in onApplicationShutdown). @nestjs/bullmq would only close the worker in that later phase.
+  async beforeApplicationShutdown() {
+    await this.worker.close();
+  }
+
   async process(job: Job<unknown>): Promise<IngestResult> {
     const parsed = clickEventV1.safeParse(job.data);
     if (!parsed.success) {
@@ -29,12 +40,17 @@ export class ClickProcessor extends WorkerHost implements OnApplicationBootstrap
       // job in the failed set for inspection.
       throw new UnrecoverableError(`Invalid click payload: ${parsed.error.message}`);
     }
+    const end = this.metrics.clickJobDuration.startTimer();
     try {
-      return await this.ingest.ingest(parsed.data);
+      const result = await this.ingest.ingest(parsed.data);
+      this.metrics.clickJobs.inc({ result });
+      return result;
     } catch (error) {
       if (error instanceof UnknownLinkError) throw new UnrecoverableError(error.message);
       // Anything else (DB down, timeout, deadlock) is retried with backoff by BullMQ.
       throw error;
+    } finally {
+      end();
     }
   }
 
@@ -42,6 +58,7 @@ export class ClickProcessor extends WorkerHost implements OnApplicationBootstrap
   onFailed(job: Job | undefined, error: Error) {
     const final =
       !job || job.attemptsMade >= (job.opts.attempts ?? 1) || error instanceof UnrecoverableError;
+    this.metrics.clickJobs.inc({ result: final ? 'failed' : 'retrying' });
     this.logger[final ? 'error' : 'warn'](
       { err: error, jobId: job?.id, attemptsMade: job?.attemptsMade },
       final ? 'Click job failed permanently' : 'Click job failed, will retry',

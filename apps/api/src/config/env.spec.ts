@@ -26,6 +26,7 @@ describe('validateEnv', () => {
       PORT: 3000,
       JWT_TTL_SECONDS: 3600,
       LINK_CACHE_TTL_SECONDS: 600,
+      CLICK_ENQUEUE_MAX_PENDING: 1000,
       TRUST_PROXY_HOPS: 0,
       CORS_ORIGINS: [],
       BLOCKED_DESTINATION_HOSTS: [],

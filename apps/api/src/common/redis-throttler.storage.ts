@@ -1,6 +1,7 @@
 import { Logger } from '@nestjs/common';
 import { ThrottlerStorage } from '@nestjs/throttler';
 import Redis from 'ioredis';
+import { Counter } from 'prom-client';
 
 // Fixed window per key, plus a separate block key once the limit is exceeded. One script so
 // concurrent requests across API instances can't interleave between the INCR and the check.
@@ -28,7 +29,10 @@ const toSeconds = (ms: number) => Math.max(0, Math.ceil(ms / 1000));
 export class RedisThrottlerStorage implements ThrottlerStorage {
   private readonly logger = new Logger(RedisThrottlerStorage.name);
 
-  constructor(private readonly redis: Redis) {}
+  constructor(
+    private readonly redis: Redis,
+    private readonly errors: Counter,
+  ) {}
 
   async increment(
     key: string,
@@ -59,6 +63,7 @@ export class RedisThrottlerStorage implements ThrottlerStorage {
         timeToBlockExpire: toSeconds(timeToBlockExpire ?? 0),
       };
     } catch (error) {
+      this.errors.inc();
       // Fail open: a Redis outage must not take redirects and the API down with it. Login stays
       // expensive to brute-force regardless, because every attempt costs an argon2 hash.
       this.logger.warn({ err: error }, 'Rate limit storage unavailable, allowing request');

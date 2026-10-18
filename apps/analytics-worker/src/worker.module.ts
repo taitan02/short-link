@@ -7,11 +7,9 @@ import { LoggerModule } from 'nestjs-pino';
 import { ClickIngestService } from './clicks/click-ingest.service';
 import { ClickProcessor } from './clicks/click.processor';
 import { Env, validateEnv } from './config/env';
-import {
-  MAINTENANCE_QUEUE,
-  RetentionProcessor,
-  RetentionService,
-} from './retention/retention.processor';
+import { WorkerMetrics, WorkerMetricsServer } from './metrics';
+import { MAINTENANCE_QUEUE } from './queues';
+import { RetentionProcessor, RetentionService } from './retention/retention.processor';
 
 @Module({
   imports: [
@@ -36,7 +34,12 @@ import {
     }),
     PrismaModule.forRootAsync({
       inject: [ConfigService],
-      useFactory: (config: ConfigService<Env, true>) => config.get('DATABASE_URL', { infer: true }),
+      useFactory: (config: ConfigService<Env, true>) => ({
+        url: config.get('DATABASE_URL', { infer: true }),
+        // One connection per concurrent job, plus headroom for retention and readiness checks.
+        // A smaller pool makes jobs queue for connections and time out under load.
+        poolMax: config.get('WORKER_CONCURRENCY', { infer: true }) + 2,
+      }),
     }),
     BullModule.forRootAsync({
       inject: [ConfigService],
@@ -44,12 +47,22 @@ import {
         // Bound first: inside BullMQ's loosely typed options, get() would infer `any`.
         const url: string = config.get('QUEUE_REDIS_URL', { infer: true });
         // Consumer side: unlike the API, waiting out a Redis blip is the right behaviour here,
-        // so ioredis keeps its default reconnect-and-queue semantics.
-        return { connection: { url } };
+        // so commands queue while reconnecting. The backoff is capped at 2 s instead of BullMQ's
+        // 20 s so the backlog starts draining right after an outage.
+        return {
+          connection: { url, retryStrategy: (times: number) => Math.min(times * 500, 2_000) },
+        };
       },
     }),
     BullModule.registerQueue({ name: CLICK_QUEUE }, { name: MAINTENANCE_QUEUE }),
   ],
-  providers: [ClickIngestService, ClickProcessor, RetentionService, RetentionProcessor],
+  providers: [
+    ClickIngestService,
+    ClickProcessor,
+    RetentionService,
+    RetentionProcessor,
+    WorkerMetrics,
+    WorkerMetricsServer,
+  ],
 })
 export class WorkerModule {}

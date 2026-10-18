@@ -3,8 +3,9 @@
 URL shortener with asynchronous click analytics. NestJS modular monolith + a separate analytics
 worker process, PostgreSQL, Redis, BullMQ.
 
-> Status: **Phase 4** — authentication, link management, cached redirects, rate limiting, and
-> asynchronous click analytics through BullMQ and a separate worker process.
+> Status: **Phase 5** — authentication, link management, cached redirects, rate limiting,
+> asynchronous click analytics, Prometheus metrics, load-tested and failure-tested
+> ([performance notes](docs/performance.md), [operations runbook](docs/operations.md)).
 
 ## Requirements
 
@@ -131,6 +132,25 @@ GET /api/links/:id/analytics ──► reads link_daily_stats only
 - **Shutdown:** on SIGTERM the worker stops taking jobs and finishes those in flight. The
   orchestrator's stop timeout must be longer than one job; anything cut off is redelivered and
   deduplicated.
+
+## Observability
+
+- Prometheus metrics on an internal port per process (`METRICS_PORT`: API 9464, worker 9465 in
+  `.env.example`), never on the public port: latency per route template, cache hit/miss/error,
+  dropped and pending click enqueues, queue depth, job outcomes, plus Node runtime metrics.
+- Structured JSON logs with request ids (`X-Request-Id` is propagated or generated).
+- Health: API `/health/live`, `/health/ready`; worker `/health/live`, `/health/ready` on its
+  metrics port.
+- Shutdown order on SIGTERM: stop taking work (HTTP server stops accepting, BullMQ workers
+  finish in-flight jobs) before PostgreSQL and Redis clients close.
+
+[docs/operations.md](docs/operations.md) covers investigating slow redirects, cache misses,
+slow queries, queue backlog, failed jobs, memory growth and click-count discrepancies.
+
+## Load testing
+
+Load tests run against a separately seeded database (1M links, 1M raw clicks) so they never
+touch dev or test data. Steps, results and query plans: [docs/performance.md](docs/performance.md).
 
 ## Configuration
 

@@ -10,7 +10,8 @@
     "typecheck": "prisma generate && tsc --noEmit -p tsconfig.json",
     "migrate:dev": "prisma migrate dev",
     "migrate:deploy": "prisma migrate deploy",
-    "migrate:status": "prisma migrate status"
+    "migrate:status": "prisma migrate status",
+    "test": "jest"
   },
   "dependencies": {
     "@prisma/adapter-pg": "7.10.1",
@@ -22,5 +23,18 @@
   },
   "peerDependencies": {
     "@nestjs/common": "^11.0.0"
+  },
+  "jest": {
+    "rootDir": "src",
+    "testRegex": ".*\\.spec\\.ts$",
+    "moduleFileExtensions": [
+      "ts",
+      "js",
+      "json"
+    ],
+    "transform": {
+      "^.+\\.ts$": "ts-jest"
+    },
+    "testEnvironment": "node"
   }
 }

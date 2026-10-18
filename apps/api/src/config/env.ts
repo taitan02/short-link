@@ -14,12 +14,16 @@ const envSchema = z.object({
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
   LOG_LEVEL: z.enum(['trace', 'debug', 'info', 'warn', 'error', 'fatal', 'silent']).default('info'),
   PORT: z.coerce.number().int().min(1).max(65535).default(3000),
+  // Prometheus /metrics on a separate, unpublished port. Unset disables the listener.
+  METRICS_PORT: z.coerce.number().int().min(1).max(65535).optional(),
   PUBLIC_BASE_URL: z.url({ protocol: /^https?$/ }).transform((url) => new URL(url).origin),
   DATABASE_URL: z.url({ protocol: /^postgres(ql)?$/ }),
   REDIS_URL: z.url({ protocol: /^rediss?$/ }),
   // BullMQ. May point at the same instance as REDIS_URL in dev; production should keep the queue
   // (noeviction, persistent) apart from the cache (evicting, disposable).
   QUEUE_REDIS_URL: z.url({ protocol: /^rediss?$/ }),
+  // Clicks allowed to wait for an unreachable queue before new ones are dropped; bounds memory.
+  CLICK_ENQUEUE_MAX_PENDING: z.coerce.number().int().min(0).max(100_000).default(1_000),
   // Upper bound on staleness if a cache write after an edit fails; see LinkCacheService.
   LINK_CACHE_TTL_SECONDS: z.coerce.number().int().min(1).max(86_400).default(600),
 

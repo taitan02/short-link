@@ -2,13 +2,37 @@ import { ValidationPipe } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { NestExpressApplication } from '@nestjs/platform-express';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
+import { NextFunction, Request, Response } from 'express';
 import helmet from 'helmet';
 import { AppExceptionFilter } from './common/app-exception.filter';
 import { Env } from './config/env';
+import { ApiMetrics } from './metrics/metrics.module';
+
+// The matched route's template. Unknown paths match Nest's catch-all ("{/*splat}"); responses
+// sent before routing (e.g. a 413 from the body parser) have no route at all.
+function routeTemplate(req: Request): string {
+  const route: unknown = req.route;
+  return typeof route === 'object' &&
+    route !== null &&
+    'path' in route &&
+    typeof route.path === 'string'
+    ? route.path
+    : 'unmatched';
+}
 
 // Shared by main.ts and the e2e tests so tests exercise the same pipeline as production.
 export function configureApp(app: NestExpressApplication): void {
   const config = app.get<ConfigService<Env, true>>(ConfigService);
+
+  const { httpDuration } = app.get(ApiMetrics);
+  // First middleware, so the timing includes everything (guards, 401s, 429s, unmatched 404s).
+  app.use((req: Request, res: Response, next: NextFunction) => {
+    const end = httpDuration.startTimer();
+    res.on('finish', () => {
+      end({ method: req.method, route: routeTemplate(req), status: String(res.statusCode) });
+    });
+    next();
+  });
 
   // Makes req.ip the real client address (used by rate limiting) when behind N proxies.
   app.set('trust proxy', config.get('TRUST_PROXY_HOPS', { infer: true }));

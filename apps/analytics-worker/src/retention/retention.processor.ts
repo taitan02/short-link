@@ -1,11 +1,17 @@
 import { InjectQueue, Processor, WorkerHost } from '@nestjs/bullmq';
-import { Injectable, Logger, OnApplicationBootstrap } from '@nestjs/common';
+import {
+  BeforeApplicationShutdown,
+  Injectable,
+  Logger,
+  OnApplicationBootstrap,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '@short-link/prisma';
 import { Queue } from 'bullmq';
 import { Env } from '../config/env';
+import { WorkerMetrics } from '../metrics';
+import { MAINTENANCE_QUEUE } from '../queues';
 
-export const MAINTENANCE_QUEUE = 'analytics-maintenance';
 const PURGE_JOB = 'purge-raw-clicks';
 // Small batches keep each DELETE short, so it never holds locks or bloats WAL long enough to
 // slow down concurrent click inserts.
@@ -18,6 +24,7 @@ export class RetentionService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly config: ConfigService<Env, true>,
+    private readonly metrics: WorkerMetrics,
   ) {}
 
   /** Deletes raw clicks past retention. Daily aggregates are untouched. */
@@ -27,12 +34,19 @@ export class RetentionService {
 
     let total = 0;
     for (;;) {
+      // = ANY(ARRAY(...)) materializes the batch's ids first, so the delete is a primary-key
+      // lookup per row. The `IN (subquery)` form planned a hash join over a sequential scan of
+      // the whole table: every batch cost O(table), not O(batch). See docs/performance.md.
       const deleted = await this.prisma.$executeRaw`
         DELETE FROM click_events
-        WHERE id IN (
-          SELECT id FROM click_events WHERE clicked_at < ${cutoff} LIMIT ${batchSize}
-        )`;
+        WHERE id = ANY(ARRAY(
+          SELECT id FROM click_events
+          WHERE clicked_at < ${cutoff}
+          ORDER BY clicked_at
+          LIMIT ${batchSize}
+        ))`;
       total += deleted;
+      this.metrics.rawClicksPurged.inc(deleted);
       if (deleted < batchSize) break;
     }
     this.logger.log({ deleted: total, cutoff }, 'Purged raw click events');
@@ -41,7 +55,10 @@ export class RetentionService {
 }
 
 @Processor(MAINTENANCE_QUEUE)
-export class RetentionProcessor extends WorkerHost implements OnApplicationBootstrap {
+export class RetentionProcessor
+  extends WorkerHost
+  implements OnApplicationBootstrap, BeforeApplicationShutdown
+{
   constructor(
     private readonly retention: RetentionService,
     @InjectQueue(MAINTENANCE_QUEUE) private readonly queue: Queue,
@@ -57,6 +74,11 @@ export class RetentionProcessor extends WorkerHost implements OnApplicationBoots
       { pattern: '0 3 * * *', tz: 'UTC' },
       { name: PURGE_JOB, opts: { removeOnComplete: 30, removeOnFail: 30 } },
     );
+  }
+
+  // See ClickProcessor: finish the purge before the DB pool closes.
+  async beforeApplicationShutdown() {
+    await this.worker.close();
   }
 
   async process(): Promise<number> {

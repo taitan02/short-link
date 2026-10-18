@@ -3,6 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import { ShortLink } from '@short-link/prisma';
 import Redis from 'ioredis';
 import { Env } from '../config/env';
+import { ApiMetrics } from '../metrics/metrics.module';
 import { REDIS } from '../redis/redis.module';
 
 /**
@@ -58,6 +59,7 @@ export class LinkCacheService {
 
   constructor(
     @Inject(REDIS) private readonly redis: Redis,
+    private readonly metrics: ApiMetrics,
     config: ConfigService<Env, true>,
   ) {
     this.ttlSeconds = config.get('LINK_CACHE_TTL_SECONDS', { infer: true });
@@ -68,18 +70,24 @@ export class LinkCacheService {
     try {
       raw = await this.redis.get(cacheKey(code));
     } catch (error) {
+      this.metrics.redirectCacheLookups.inc({ result: 'error' });
       this.logger.warn({ err: error, code }, 'Link cache read failed, falling back to database');
       return { hit: false };
     }
-    if (raw === null) return { hit: false };
+    if (raw === null) {
+      this.metrics.redirectCacheLookups.inc({ result: 'miss' });
+      return { hit: false };
+    }
 
     const parsed = parseEntry(raw);
     if (parsed === undefined) {
       // Never guess a destination from a value we can't fully parse. Expected briefly after a
       // deploy that changes the entry format; the DB read that follows rewrites the entry.
       this.logger.warn({ code }, 'Unreadable link cache entry, ignoring');
+      this.metrics.redirectCacheLookups.inc({ result: 'error' });
       return { hit: false };
     }
+    this.metrics.redirectCacheLookups.inc({ result: 'hit' });
     return { hit: true, link: parsed };
   }
 

@@ -21,4 +21,7 @@ export default tseslint.config(
       '@typescript-eslint/no-unused-vars': ['error', { argsIgnorePattern: '^_' }],
     },
   },
+  // k6 scripts run in k6's own JS runtime, outside any TypeScript project.
+  { files: ['test/load/**/*.js'], ...tseslint.configs.disableTypeChecked },
+  { files: ['test/load/**/*.js'], languageOptions: { globals: { __ENV: 'readonly' } } },
 );

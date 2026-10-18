@@ -4,6 +4,17 @@ name: short-link
 services:
   postgres:
     image: postgres:18-alpine
+    # pg_stat_statements: per-query timing for the slow-query runbook (docs/operations.md).
+    # random_page_cost 1.1 suits SSDs; the default 4 made the planner sort deep listing pages
+    # instead of walking the index (docs/performance.md). Statements over 250 ms are logged.
+    command:
+      - postgres
+      - -c
+      - shared_preload_libraries=pg_stat_statements
+      - -c
+      - random_page_cost=1.1
+      - -c
+      - log_min_duration_statement=250
     environment:
       POSTGRES_USER: shortlink
       POSTGRES_PASSWORD: shortlink

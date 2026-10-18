@@ -39,8 +39,9 @@ model ShortLink {
   clicks      ClickEvent[]
   dailyStats  LinkDailyStat[]
 
-  // Serves the default dashboard listing (one user's links, newest first) as an index range scan.
-  @@index([userId, createdAt(sort: Desc)])
+  // Serves the dashboard listing (one user's links, newest first) straight from the index:
+  // `id` matches the ORDER BY tie-breaker, so deep pages need no sort step.
+  @@index([userId, createdAt(sort: Desc), id(sort: Desc)])
   @@map("short_links")
 }
 

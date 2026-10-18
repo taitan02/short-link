@@ -3,7 +3,8 @@ import { TestingModule } from '@nestjs/testing';
 import { PrismaService, ShortLink } from '@short-link/prisma';
 import { Queue } from 'bullmq';
 import { ClickIngestService } from '../src/clicks/click-ingest.service';
-import { MAINTENANCE_QUEUE, RetentionService } from '../src/retention/retention.processor';
+import { MAINTENANCE_QUEUE } from '../src/queues';
+import { RetentionService } from '../src/retention/retention.processor';
 import { clickEvent, createLink, createWorker, resetDatabase, stats } from './utils';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
