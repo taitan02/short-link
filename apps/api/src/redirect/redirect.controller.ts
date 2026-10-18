@@ -1,5 +1,6 @@
-import { Controller, Get, Header, HttpStatus, Param, Redirect } from '@nestjs/common';
+import { Controller, Get, Header, Headers, HttpStatus, Param, Redirect } from '@nestjs/common';
 import { ApiFoundResponse, ApiGoneResponse, ApiNotFoundResponse, ApiTags } from '@nestjs/swagger';
+import { ClickRecorder } from '../analytics/click-recorder.service';
 import { Public } from '../auth/auth.decorators';
 import { RedirectService } from './redirect.service';
 
@@ -8,7 +9,10 @@ import { RedirectService } from './redirect.service';
 @ApiTags('redirect')
 @Controller()
 export class RedirectController {
-  constructor(private readonly redirects: RedirectService) {}
+  constructor(
+    private readonly redirects: RedirectService,
+    private readonly clicks: ClickRecorder,
+  ) {}
 
   // 302, not 301: browsers cache 301s indefinitely, so a later disable/edit would never be
   // seen and repeat clicks would bypass analytics. no-store keeps intermediaries honest too.
@@ -18,7 +22,14 @@ export class RedirectController {
   @ApiFoundResponse({ description: 'Redirects to the destination URL' })
   @ApiNotFoundResponse({ description: 'Unknown or deleted code' })
   @ApiGoneResponse({ description: 'Link disabled or expired' })
-  async redirect(@Param('code') code: string) {
-    return { url: await this.redirects.resolve(code) };
+  async redirect(
+    @Param('code') code: string,
+    @Headers('referer') referer?: string,
+    @Headers('user-agent') userAgent?: string,
+  ) {
+    const link = await this.redirects.resolve(code);
+    // Only successful redirects count as clicks; 404/410 responses are not recorded.
+    this.clicks.record({ shortLinkId: link.id, referer, userAgent });
+    return { url: link.originalUrl };
   }
 }

@@ -1,11 +1,13 @@
 import { randomUUID } from 'node:crypto';
 import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
+import { BullModule } from '@nestjs/bullmq';
 import { APP_GUARD } from '@nestjs/core';
 import { ThrottlerModule, minutes } from '@nestjs/throttler';
 import { PrismaModule } from '@short-link/prisma';
 import Redis from 'ioredis';
 import { LoggerModule } from 'nestjs-pino';
+import { AnalyticsModule } from './analytics/analytics.module';
 import { AuthModule } from './auth/auth.module';
 import { JwtAuthGuard } from './auth/jwt-auth.guard';
 import { RedisThrottlerStorage } from './common/redis-throttler.storage';
@@ -67,6 +69,22 @@ const REQUEST_ID_PATTERN = /^[\w-]{1,128}$/;
       useFactory: (config: ConfigService<Env, true>) => config.get('DATABASE_URL', { infer: true }),
     }),
     RedisModule,
+    BullModule.forRootAsync({
+      inject: [ConfigService],
+      useFactory: (config: ConfigService<Env, true>) => {
+        // Bound first: inside BullMQ's loosely typed options, get() would infer `any`.
+        const url: string = config.get('QUEUE_REDIS_URL', { infer: true });
+        return {
+          connection: {
+            url,
+            // Producer side: fail an enqueue immediately while Redis is unreachable instead of
+            // queueing it in memory; see ClickRecorder for why that is acceptable.
+            enableOfflineQueue: false,
+            maxRetriesPerRequest: 1,
+          },
+        };
+      },
+    }),
     // Counters live in Redis so limits hold across API replicas.
     ThrottlerModule.forRootAsync({
       inject: [REDIS],
@@ -79,6 +97,7 @@ const REQUEST_ID_PATTERN = /^[\w-]{1,128}$/;
     AuthModule,
     UsersModule,
     LinksModule,
+    AnalyticsModule,
     // Last: its GET /:code catch-all must not shadow other single-segment routes.
     RedirectModule,
   ],

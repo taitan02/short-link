@@ -10,8 +10,8 @@ export class RedirectService {
     private readonly cache: LinkCacheService,
   ) {}
 
-  /** Returns the destination URL, or throws 404 (unknown/deleted) or 410 (disabled/expired). */
-  async resolve(code: string): Promise<string> {
+  /** Returns the link to redirect to, or throws 404 (unknown/deleted) or 410 (disabled/expired). */
+  async resolve(code: string): Promise<CachedLink> {
     // Malformed codes can never exist, so reject them without touching cache or database.
     if (!isValidShortCode(code) || isReservedCode(code)) {
       throw new NotFoundException('Link not found');
@@ -24,13 +24,14 @@ export class RedirectService {
     if (!link.isActive || (link.expiresAt !== null && link.expiresAt <= Date.now())) {
       throw new GoneException('Link is no longer available');
     }
-    return link.originalUrl;
+    return link;
   }
 
   private async loadAndCache(code: string): Promise<CachedLink | null> {
     const row = await this.prisma.shortLink.findUnique({
       where: { code },
       select: {
+        id: true,
         originalUrl: true,
         isActive: true,
         expiresAt: true,

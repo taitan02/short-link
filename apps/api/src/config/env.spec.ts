@@ -5,6 +5,7 @@ const REQUIRED = {
   DATABASE_URL: 'postgresql://user:pass@localhost:5432/db',
   JWT_SECRET: 'x'.repeat(32),
   REDIS_URL: 'redis://localhost:6379',
+  QUEUE_REDIS_URL: 'redis://localhost:6379/1',
 };
 
 function captureError(fn: () => unknown): Error {
@@ -43,9 +44,12 @@ describe('validateEnv', () => {
     expect(() => validateEnv({ ...REQUIRED, NODE_ENV: 'staging' })).toThrow(/NODE_ENV/);
   });
 
-  it.each(['DATABASE_URL', 'PUBLIC_BASE_URL', 'JWT_SECRET', 'REDIS_URL'])('requires %s', (key) => {
-    expect(() => validateEnv({ ...REQUIRED, [key]: undefined })).toThrow(new RegExp(key));
-  });
+  it.each(['DATABASE_URL', 'PUBLIC_BASE_URL', 'JWT_SECRET', 'REDIS_URL', 'QUEUE_REDIS_URL'])(
+    'requires %s',
+    (key) => {
+      expect(() => validateEnv({ ...REQUIRED, [key]: undefined })).toThrow(new RegExp(key));
+    },
+  );
 
   it('rejects a non-postgres DATABASE_URL', () => {
     expect(() => validateEnv({ ...REQUIRED, DATABASE_URL: 'mysql://localhost/db' })).toThrow(

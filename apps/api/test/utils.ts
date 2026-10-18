@@ -19,7 +19,8 @@ export async function createTestApp(
 
 /** Clears rows, cached links and rate-limit counters so tests can't see each other's state. */
 export async function resetState(app: NestExpressApplication) {
-  await app.get(PrismaService).$executeRaw`TRUNCATE TABLE short_links, users`;
+  await app.get(PrismaService)
+    .$executeRaw`TRUNCATE TABLE link_daily_stats, click_events, short_links, users`;
   await app.get<Redis>(REDIS).flushdb();
 }
 

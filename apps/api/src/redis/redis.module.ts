@@ -1,6 +1,8 @@
+import { once } from 'node:events';
 import { Global, Inject, Logger, Module, OnApplicationShutdown } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import Redis from 'ioredis';
+import { waitBriefly } from '../common/wait-briefly';
 import { Env } from '../config/env';
 
 export const REDIS = Symbol('REDIS');
@@ -15,7 +17,7 @@ const COMMAND_TIMEOUT_MS = 200;
     {
       provide: REDIS,
       inject: [ConfigService],
-      useFactory: (config: ConfigService<Env, true>) => {
+      useFactory: async (config: ConfigService<Env, true>) => {
         const logger = new Logger('Redis');
         const redis = new Redis(config.get('REDIS_URL', { infer: true }), {
           commandTimeout: COMMAND_TIMEOUT_MS,
@@ -27,6 +29,7 @@ const COMMAND_TIMEOUT_MS = 200;
         });
         // Reconnection is automatic; without a listener ioredis prints unhandled error events.
         redis.on('error', (err: Error) => logger.warn({ err }, 'Redis connection error'));
+        await waitBriefly(once(redis, 'ready'), 2_000);
         return redis;
       },
     },

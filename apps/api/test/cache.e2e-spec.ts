@@ -12,6 +12,7 @@ import {
   uniqueIp,
 } from './utils';
 
+const LINK_ID = '01a14e89-743f-722a-88c1-559ad54a843e';
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 describe('Redirect cache (e2e)', () => {
@@ -44,6 +45,7 @@ describe('Redirect cache (e2e)', () => {
     const entry = await redis.get('link:cache01');
     expect(entry).toBe(
       `${link.updatedAt.getTime()}|${JSON.stringify({
+        id: link.id,
         originalUrl: link.originalUrl,
         isActive: true,
         expiresAt: null,
@@ -158,8 +160,18 @@ describe('Redirect cache (e2e)', () => {
   describe('LinkCacheService versioning', () => {
     it('refuses to overwrite a newer entry with an older one', async () => {
       const cache = app.get(LinkCacheService);
-      const fresh = { originalUrl: 'https://new.example/', isActive: false, expiresAt: null };
-      const stale = { originalUrl: 'https://old.example/', isActive: true, expiresAt: null };
+      const fresh = {
+        id: LINK_ID,
+        originalUrl: 'https://new.example/',
+        isActive: false,
+        expiresAt: null,
+      };
+      const stale = {
+        id: LINK_ID,
+        originalUrl: 'https://old.example/',
+        isActive: true,
+        expiresAt: null,
+      };
 
       // An edit at t=2000 lands first; a redirect that read the row as of t=1000 lands after.
       await cache.set('race01', 2_000, fresh);
@@ -171,7 +183,12 @@ describe('Redirect cache (e2e)', () => {
     it('lets a newer write replace an older one', async () => {
       const cache = app.get(LinkCacheService);
       await cache.set('race02', 0, null);
-      const created = { originalUrl: 'https://x.example/', isActive: true, expiresAt: null };
+      const created = {
+        id: LINK_ID,
+        originalUrl: 'https://x.example/',
+        isActive: true,
+        expiresAt: null,
+      };
       await cache.set('race02', 1_000, created);
 
       await expect(cache.get('race02')).resolves.toEqual({ hit: true, link: created });

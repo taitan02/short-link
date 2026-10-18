@@ -12,6 +12,7 @@ import { REDIS } from '../redis/redis.module';
  * link past its expiry, whatever its TTL.
  */
 export interface CachedLink {
+  id: string;
   originalUrl: string;
   isActive: boolean;
   expiresAt: number | null;
@@ -38,10 +39,11 @@ return 1
 `;
 
 export function toCachedLink(
-  row: Pick<ShortLink, 'originalUrl' | 'isActive' | 'expiresAt' | 'deletedAt'> | null,
+  row: Pick<ShortLink, 'id' | 'originalUrl' | 'isActive' | 'expiresAt' | 'deletedAt'> | null,
 ): CachedLink | null {
   if (!row || row.deletedAt) return null;
   return {
+    id: row.id,
     originalUrl: row.originalUrl,
     isActive: row.isActive,
     expiresAt: row.expiresAt?.getTime() ?? null,
@@ -73,8 +75,9 @@ export class LinkCacheService {
 
     const parsed = parseEntry(raw);
     if (parsed === undefined) {
-      // Never guess a destination from a value we can't fully parse.
-      this.logger.error({ code }, 'Malformed link cache entry, ignoring');
+      // Never guess a destination from a value we can't fully parse. Expected briefly after a
+      // deploy that changes the entry format; the DB read that follows rewrites the entry.
+      this.logger.warn({ code }, 'Unreadable link cache entry, ignoring');
       return { hit: false };
     }
     return { hit: true, link: parsed };
@@ -115,6 +118,8 @@ function parseEntry(raw: string): CachedLink | null | undefined {
     if (value === null) return null;
     if (
       typeof value === 'object' &&
+      'id' in value &&
+      typeof value.id === 'string' &&
       'originalUrl' in value &&
       typeof value.originalUrl === 'string' &&
       'isActive' in value &&
@@ -123,6 +128,7 @@ function parseEntry(raw: string): CachedLink | null | undefined {
       (value.expiresAt === null || typeof value.expiresAt === 'number')
     ) {
       return {
+        id: value.id,
         originalUrl: value.originalUrl,
         isActive: value.isActive,
         expiresAt: value.expiresAt,

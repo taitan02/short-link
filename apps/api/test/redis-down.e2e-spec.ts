@@ -11,7 +11,7 @@ describe('With Redis unavailable (e2e)', () => {
 
   beforeAll(async () => {
     ({ app, prisma } = await createTestApp());
-    await prisma.$executeRaw`TRUNCATE TABLE short_links, users`;
+    await prisma.$executeRaw`TRUNCATE TABLE link_daily_stats, click_events, short_links, users`;
     user = await createUser(prisma);
   });
 

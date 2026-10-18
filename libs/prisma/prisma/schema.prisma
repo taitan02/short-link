@@ -22,22 +22,63 @@ model User {
 }
 
 model ShortLink {
-  id          String    @id @default(uuid(7)) @db.Uuid
+  id          String          @id @default(uuid(7)) @db.Uuid
   // Restrict: account deletion is not a feature yet, and must decide what happens to codes
   // that are already shared publicly before it becomes one.
-  userId      String    @map("user_id") @db.Uuid
+  userId      String          @map("user_id") @db.Uuid
   // Case-sensitive. The unique index is the redirect lookup path and the only real guarantee
   // against collisions; covering soft-deleted rows means a code is never handed to a new owner.
-  code        String    @unique @db.VarChar(32)
-  originalUrl String    @map("original_url") @db.VarChar(2048)
-  isActive    Boolean   @default(true) @map("is_active")
-  expiresAt   DateTime? @map("expires_at") @db.Timestamptz(3)
-  deletedAt   DateTime? @map("deleted_at") @db.Timestamptz(3)
-  createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
-  updatedAt   DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
-  user        User      @relation(fields: [userId], references: [id], onDelete: Restrict)
+  code        String          @unique @db.VarChar(32)
+  originalUrl String          @map("original_url") @db.VarChar(2048)
+  isActive    Boolean         @default(true) @map("is_active")
+  expiresAt   DateTime?       @map("expires_at") @db.Timestamptz(3)
+  deletedAt   DateTime?       @map("deleted_at") @db.Timestamptz(3)
+  createdAt   DateTime        @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt   DateTime        @updatedAt @map("updated_at") @db.Timestamptz(3)
+  user        User            @relation(fields: [userId], references: [id], onDelete: Restrict)
+  clicks      ClickEvent[]
+  dailyStats  LinkDailyStat[]
 
   // Serves the default dashboard listing (one user's links, newest first) as an index range scan.
   @@index([userId, createdAt(sort: Desc)])
   @@map("short_links")
+}
+
+// Raw clicks, kept CLICK_RETENTION_DAYS (90 by default) for debugging and reprocessing.
+// Dashboards never read this table; they read link_daily_stats.
+model ClickEvent {
+  // The producer's eventId. Inserting with ON CONFLICT DO NOTHING makes this the idempotency
+  // ledger: a redelivered job finds its row and does not count the click twice.
+  id           String    @id @db.Uuid
+  shortLinkId  String    @map("short_link_id") @db.Uuid
+  clickedAt    DateTime  @map("clicked_at") @db.Timestamptz(3)
+  referrerHost String?   @map("referrer_host") @db.VarChar(255)
+  // Normalized from the User-Agent, which itself is not stored.
+  deviceType   String    @map("device_type") @db.VarChar(16)
+  browser      String    @db.VarChar(64)
+  os           String    @db.VarChar(64)
+  createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  shortLink    ShortLink @relation(fields: [shortLinkId], references: [id], onDelete: Cascade)
+
+  @@index([shortLinkId, clickedAt])
+  // Retention deletes by age across all links.
+  @@index([clickedAt])
+  @@map("click_events")
+}
+
+// Pre-aggregated counters, one row per link, UTC day and dimension value. Dashboard queries
+// touch at most (days x distinct values) rows for one link instead of scanning raw clicks.
+model LinkDailyStat {
+  shortLinkId String    @map("short_link_id") @db.Uuid
+  day         DateTime  @db.Date
+  // total | referrer | device | browser
+  dimension   String    @db.VarChar(16)
+  // '' for total, '(direct)' for clicks without a referrer
+  value       String    @db.VarChar(255)
+  clicks      Int       @default(0)
+  shortLink   ShortLink @relation(fields: [shortLinkId], references: [id], onDelete: Cascade)
+
+  // Also the index for "one link, a date range, one dimension".
+  @@id([shortLinkId, dimension, day, value])
+  @@map("link_daily_stats")
 }
