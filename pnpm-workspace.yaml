@@ -1,0 +1,8 @@
+packages:
+  - apps/*
+  - libs/*
+
+# Both ship prebuilt native binaries via optional deps; their install scripts are not needed.
+ignoredBuiltDependencies:
+  - '@parcel/watcher'
+  - unrs-resolver
