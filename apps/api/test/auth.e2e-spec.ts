@@ -2,7 +2,7 @@ import { JwtService } from '@nestjs/jwt';
 import { NestExpressApplication } from '@nestjs/platform-express';
 import { PrismaService } from '@short-link/prisma';
 import request from 'supertest';
-import { createTestApp, registerAndLogin, resetDatabase, uniqueIp } from './utils';
+import { createTestApp, registerAndLogin, resetState, uniqueIp } from './utils';
 
 describe('Auth (e2e)', () => {
   let app: NestExpressApplication;
@@ -17,7 +17,7 @@ describe('Auth (e2e)', () => {
   });
 
   beforeEach(async () => {
-    await resetDatabase(prisma);
+    await resetState(app);
   });
 
   const post = (path: string, body: object, ip = uniqueIp()) =>

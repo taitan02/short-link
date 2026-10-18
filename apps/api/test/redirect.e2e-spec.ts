@@ -1,7 +1,7 @@
 import { NestExpressApplication } from '@nestjs/platform-express';
 import { PrismaService, User } from '@short-link/prisma';
 import request from 'supertest';
-import { createLink, createTestApp, createUser, resetDatabase } from './utils';
+import { createLink, createTestApp, createUser, resetState } from './utils';
 
 describe('Redirect (e2e)', () => {
   let app: NestExpressApplication;
@@ -17,7 +17,7 @@ describe('Redirect (e2e)', () => {
   });
 
   beforeEach(async () => {
-    await resetDatabase(prisma);
+    await resetState(app);
     user = await createUser(prisma);
   });
 

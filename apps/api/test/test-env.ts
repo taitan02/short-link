@@ -10,3 +10,14 @@ export function testDatabaseUrl(): string {
   }
   return url;
 }
+
+const DEFAULT_TEST_REDIS_URL = 'redis://localhost:6389/15';
+
+// Same idea for Redis, which tests FLUSHDB between cases: only logical database 15 is allowed.
+export function testRedisUrl(): string {
+  const url = process.env.TEST_REDIS_URL ?? DEFAULT_TEST_REDIS_URL;
+  if (new URL(url).pathname !== '/15') {
+    throw new Error('Refusing to run tests against Redis: TEST_REDIS_URL must select database 15');
+  }
+  return url;
+}

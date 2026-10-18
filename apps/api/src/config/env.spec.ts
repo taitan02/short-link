@@ -4,6 +4,7 @@ const REQUIRED = {
   PUBLIC_BASE_URL: 'https://sho.rt',
   DATABASE_URL: 'postgresql://user:pass@localhost:5432/db',
   JWT_SECRET: 'x'.repeat(32),
+  REDIS_URL: 'redis://localhost:6379',
 };
 
 function captureError(fn: () => unknown): Error {
@@ -23,6 +24,7 @@ describe('validateEnv', () => {
       LOG_LEVEL: 'info',
       PORT: 3000,
       JWT_TTL_SECONDS: 3600,
+      LINK_CACHE_TTL_SECONDS: 600,
       TRUST_PROXY_HOPS: 0,
       CORS_ORIGINS: [],
       BLOCKED_DESTINATION_HOSTS: [],
@@ -41,7 +43,7 @@ describe('validateEnv', () => {
     expect(() => validateEnv({ ...REQUIRED, NODE_ENV: 'staging' })).toThrow(/NODE_ENV/);
   });
 
-  it.each(['DATABASE_URL', 'PUBLIC_BASE_URL', 'JWT_SECRET'])('requires %s', (key) => {
+  it.each(['DATABASE_URL', 'PUBLIC_BASE_URL', 'JWT_SECRET', 'REDIS_URL'])('requires %s', (key) => {
     expect(() => validateEnv({ ...REQUIRED, [key]: undefined })).toThrow(new RegExp(key));
   });
 

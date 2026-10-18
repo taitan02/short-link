@@ -18,11 +18,11 @@ describe('Health (e2e)', () => {
     await request(app.getHttpServer()).get('/health/live').expect(200).expect({ status: 'ok' });
   });
 
-  it('GET /health/ready reports the database as up', async () => {
+  it('GET /health/ready reports database and Redis as up', async () => {
     await request(app.getHttpServer())
       .get('/health/ready')
       .expect(200)
-      .expect({ status: 'ok', checks: { database: 'up' } });
+      .expect({ status: 'ok', checks: { database: 'up', redis: 'up' } });
   });
 
   it('generates a request id when none is sent', async () => {
@@ -65,7 +65,7 @@ describe('Health (e2e, database down)', () => {
     await request(app.getHttpServer())
       .get('/health/ready')
       .expect(503)
-      .expect({ status: 'error', checks: { database: 'down' } });
+      .expect({ status: 'error', checks: { database: 'down', redis: 'up' } });
     await request(app.getHttpServer()).get('/health/live').expect(200);
   });
 });

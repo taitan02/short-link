@@ -4,14 +4,17 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
 import { APP_GUARD } from '@nestjs/core';
 import { ThrottlerModule, minutes } from '@nestjs/throttler';
 import { PrismaModule } from '@short-link/prisma';
+import Redis from 'ioredis';
 import { LoggerModule } from 'nestjs-pino';
 import { AuthModule } from './auth/auth.module';
 import { JwtAuthGuard } from './auth/jwt-auth.guard';
+import { RedisThrottlerStorage } from './common/redis-throttler.storage';
 import { AppThrottlerGuard } from './common/throttler.guard';
 import { Env, validateEnv } from './config/env';
 import { HealthModule } from './health/health.module';
 import { LinksModule } from './links/links.module';
 import { RedirectModule } from './redirect/redirect.module';
+import { REDIS, RedisModule } from './redis/redis.module';
 import { UsersModule } from './users/users.module';
 
 // The header is client-controlled and ends up in every log line, so anything that could
@@ -63,9 +66,15 @@ const REQUEST_ID_PATTERN = /^[\w-]{1,128}$/;
       inject: [ConfigService],
       useFactory: (config: ConfigService<Env, true>) => config.get('DATABASE_URL', { infer: true }),
     }),
-    // In-memory counters: correct for a single instance only. Moves to Redis in Phase 3 so
-    // limits hold across replicas.
-    ThrottlerModule.forRoot({ throttlers: [{ name: 'default', ttl: minutes(1), limit: 300 }] }),
+    RedisModule,
+    // Counters live in Redis so limits hold across API replicas.
+    ThrottlerModule.forRootAsync({
+      inject: [REDIS],
+      useFactory: (redis: Redis) => ({
+        throttlers: [{ name: 'default', ttl: minutes(1), limit: 300 }],
+        storage: new RedisThrottlerStorage(redis),
+      }),
+    }),
     HealthModule,
     AuthModule,
     UsersModule,

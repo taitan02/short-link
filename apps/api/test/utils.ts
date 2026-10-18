@@ -1,9 +1,11 @@
 import { Test, TestingModuleBuilder } from '@nestjs/testing';
 import { NestExpressApplication } from '@nestjs/platform-express';
 import { PrismaService, ShortLink, User } from '@short-link/prisma';
+import Redis from 'ioredis';
 import request from 'supertest';
 import { AppModule } from '../src/app.module';
 import { configureApp } from '../src/app.setup';
+import { REDIS } from '../src/redis/redis.module';
 
 export async function createTestApp(
   customize: (builder: TestingModuleBuilder) => TestingModuleBuilder = (builder) => builder,
@@ -12,11 +14,13 @@ export async function createTestApp(
   const app = moduleRef.createNestApplication<NestExpressApplication>();
   configureApp(app);
   await app.init();
-  return { app, prisma: app.get(PrismaService) };
+  return { app, prisma: app.get(PrismaService), redis: app.get<Redis>(REDIS) };
 }
 
-export async function resetDatabase(prisma: PrismaService) {
-  await prisma.$executeRaw`TRUNCATE TABLE short_links, users`;
+/** Clears rows, cached links and rate-limit counters so tests can't see each other's state. */
+export async function resetState(app: NestExpressApplication) {
+  await app.get(PrismaService).$executeRaw`TRUNCATE TABLE short_links, users`;
+  await app.get<Redis>(REDIS).flushdb();
 }
 
 let userSeq = 0;

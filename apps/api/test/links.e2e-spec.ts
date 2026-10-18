@@ -1,16 +1,14 @@
 import { NestExpressApplication } from '@nestjs/platform-express';
-import { PrismaService } from '@short-link/prisma';
 import request from 'supertest';
-import { createTestApp, registerAndLogin, resetDatabase } from './utils';
+import { createTestApp, registerAndLogin, resetState } from './utils';
 
 describe('Links API (e2e)', () => {
   let app: NestExpressApplication;
-  let prisma: PrismaService;
   let alice: string;
   let bob: string;
 
   beforeAll(async () => {
-    ({ app, prisma } = await createTestApp());
+    ({ app } = await createTestApp());
   });
 
   afterAll(async () => {
@@ -18,7 +16,7 @@ describe('Links API (e2e)', () => {
   });
 
   beforeEach(async () => {
-    await resetDatabase(prisma);
+    await resetState(app);
     alice = (await registerAndLogin(app)).token;
     bob = (await registerAndLogin(app)).token;
   });

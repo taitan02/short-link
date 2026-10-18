@@ -8,7 +8,7 @@ import { NestExpressApplication } from '@nestjs/platform-express';
 import { Prisma, PrismaService, User } from '@short-link/prisma';
 import { LinksService } from '../src/links/links.service';
 import { ShortCodeGenerator } from '../src/links/short-code';
-import { createLink, createTestApp, createUser, resetDatabase } from './utils';
+import { createLink, createTestApp, createUser, resetState } from './utils';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const inDays = (days: number) => new Date(Date.now() + days * DAY_MS);
@@ -33,7 +33,7 @@ describe('LinksService (integration)', () => {
   });
 
   beforeEach(async () => {
-    await resetDatabase(prisma);
+    await resetState(app);
     alice = await createUser(prisma);
     bob = await createUser(prisma);
     const real = new ShortCodeGenerator();

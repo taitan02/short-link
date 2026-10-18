@@ -16,6 +16,9 @@ const envSchema = z.object({
   PORT: z.coerce.number().int().min(1).max(65535).default(3000),
   PUBLIC_BASE_URL: z.url({ protocol: /^https?$/ }).transform((url) => new URL(url).origin),
   DATABASE_URL: z.url({ protocol: /^postgres(ql)?$/ }),
+  REDIS_URL: z.url({ protocol: /^rediss?$/ }),
+  // Upper bound on staleness if a cache write after an edit fails; see LinkCacheService.
+  LINK_CACHE_TTL_SECONDS: z.coerce.number().int().min(1).max(86_400).default(600),
 
   // HS256 is only as strong as the secret; 32+ chars of random data (openssl rand -base64 48).
   JWT_SECRET: z.string().min(32),

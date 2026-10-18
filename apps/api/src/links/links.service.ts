@@ -10,6 +10,7 @@ import { ConfigService } from '@nestjs/config';
 import { Prisma, PrismaService, ShortLink } from '@short-link/prisma';
 import { Env } from '../config/env';
 import { DestinationPolicy, parseDestinationUrl } from './destination-url';
+import { LinkCacheService } from './link-cache.service';
 import {
   CreateLinkDto,
   LinkPageDto,
@@ -30,6 +31,7 @@ export class LinksService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly codes: ShortCodeGenerator,
+    private readonly cache: LinkCacheService,
     config: ConfigService<Env, true>,
   ) {
     this.publicBaseUrl = config.get('PUBLIC_BASE_URL', { infer: true });
@@ -50,9 +52,7 @@ export class LinksService {
     if (dto.alias !== undefined) {
       if (isReservedCode(dto.alias)) throw new BadRequestException('alias is reserved');
       try {
-        return this.toResponse(
-          await this.prisma.shortLink.create({ data: { ...data, code: dto.alias } }),
-        );
+        return await this.insert({ ...data, code: dto.alias });
       } catch (error) {
         if (isUniqueViolation(error)) throw new ConflictException('alias is already taken');
         throw error;
@@ -64,7 +64,7 @@ export class LinksService {
       const code = this.codes.generate();
       if (isReservedCode(code)) continue;
       try {
-        return this.toResponse(await this.prisma.shortLink.create({ data: { ...data, code } }));
+        return await this.insert({ ...data, code });
       } catch (error) {
         if (!isUniqueViolation(error)) throw error;
         this.logger.warn({ attempt }, 'Short code collision, retrying');
@@ -142,6 +142,7 @@ export class LinksService {
         expiresAt: dto.expiresAt,
       },
     });
+    await this.cache.setFromRow(link);
     return this.toResponse(link);
   }
 
@@ -149,7 +150,19 @@ export class LinksService {
   // traffic from links that are still shared around.
   async remove(userId: string, id: string): Promise<void> {
     await this.findOwnedOrThrow(userId, id);
-    await this.prisma.shortLink.update({ where: { id }, data: { deletedAt: new Date() } });
+    const link = await this.prisma.shortLink.update({
+      where: { id },
+      data: { deletedAt: new Date() },
+    });
+    await this.cache.setFromRow(link);
+  }
+
+  // Writing the new row (rather than deleting the key) also replaces a cached "no such code"
+  // entry, so a freshly created alias works immediately even if someone probed it before.
+  private async insert(data: Prisma.ShortLinkUncheckedCreateInput): Promise<LinkResponseDto> {
+    const link = await this.prisma.shortLink.create({ data });
+    await this.cache.setFromRow(link);
+    return this.toResponse(link);
   }
 
   // Someone else's link and a missing link are indistinguishable, so ids can't be probed.
@@ -166,8 +179,9 @@ export class LinksService {
   }
 
   private assertFuture(date: Date): void {
-    if (date.getTime() <= Date.now())
+    if (date.getTime() <= Date.now()) {
       throw new BadRequestException('expiresAt must be in the future');
+    }
   }
 
   private toResponse(link: ShortLink): LinkResponseDto {
