@@ -1,7 +1,10 @@
 import { Controller, Get, Header, HttpStatus, Param, Redirect } from '@nestjs/common';
 import { ApiFoundResponse, ApiGoneResponse, ApiNotFoundResponse, ApiTags } from '@nestjs/swagger';
+import { Public } from '../auth/auth.decorators';
 import { RedirectService } from './redirect.service';
 
+// Throttled per IP by the default limit; generous because one NAT can front many visitors.
+@Public()
 @ApiTags('redirect')
 @Controller()
 export class RedirectController {

@@ -3,8 +3,8 @@
 URL shortener with asynchronous click analytics. NestJS modular monolith + a separate analytics
 worker process, PostgreSQL, Redis, BullMQ.
 
-> Status: **Phase 1** — schema, short-code generation, link management service, redirect.
-> Link management HTTP endpoints ship with authentication in Phase 2.
+> Status: **Phase 2** — authentication, link management API with ownership checks, redirect,
+> rate limiting and HTTP hardening. Redis caching (Phase 3) and analytics (Phase 4) are next.
 
 ## Requirements
 
@@ -16,7 +16,7 @@ worker process, PostgreSQL, Redis, BullMQ.
 
 ```bash
 pnpm install                 # also generates the Prisma client and builds libs/prisma
-cp .env.example .env
+cp .env.example .env         # then set JWT_SECRET: openssl rand -base64 48
 docker compose up -d postgres
 pnpm --filter @short-link/prisma migrate:deploy
 pnpm --filter @short-link/api start:dev
@@ -24,6 +24,24 @@ pnpm --filter @short-link/api start:dev
 
 - API docs: `http://localhost:3000/docs`
 - Health: `/health/live` (process up), `/health/ready` (database reachable)
+
+## API
+
+| Method | Path                 | Auth   | Notes                                                    |
+| ------ | -------------------- | ------ | -------------------------------------------------------- |
+| POST   | `/api/auth/register` | —      | 10 per hour per IP                                       |
+| POST   | `/api/auth/login`    | —      | 10 per minute per IP, then 5 min lockout                 |
+| GET    | `/api/users/me`      | Bearer |                                                          |
+| POST   | `/api/links`         | Bearer | 30 per minute per account                                |
+| GET    | `/api/links`         | Bearer | `page`, `pageSize`, `status`, `q`, `sortBy`, `sortOrder` |
+| GET    | `/api/links/:id`     | Bearer | Another user's link is a 404, never a 403                |
+| PATCH  | `/api/links/:id`     | Bearer | `url`, `isActive`, `expiresAt` (null clears it)          |
+| DELETE | `/api/links/:id`     | Bearer | Soft delete; the code is never reissued                  |
+| GET    | `/:code`             | —      | 302 redirect                                             |
+
+Every route requires a token unless it is explicitly marked `@Public()`. Everything except
+health checks shares a default limit of 300 requests per minute per account (or per IP when
+anonymous).
 
 Postgres is published on host port `5442` (override with `POSTGRES_HOST_PORT`) to avoid clashing
 with a local Postgres on 5432.
@@ -87,6 +105,20 @@ see the environment they are explicitly given.
 - **Soft delete** for links, so a deleted code can never be re-registered by someone else.
 - **Redirects** are `302` with `Cache-Control: no-store`. Unknown/deleted → `404`,
   disabled/expired → `410`.
+- **Auth:** argon2id password hashing (OWASP baseline parameters), HS256 JWT access tokens
+  (1 h by default) in the `Authorization` header — no cookies, so no CSRF surface. There are no
+  refresh tokens or server-side revocation yet: a leaked token is valid until it expires.
+  Login spends the same hashing work for unknown emails, so timing doesn't reveal accounts.
+- **Rate limiting:** `@nestjs/throttler` with in-memory counters, keyed by user when
+  authenticated and by client IP otherwise (`TRUST_PROXY_HOPS` must match the proxy setup).
+  Counters are per process until they move to Redis in Phase 3.
+- **Destination checks:** http(s) only, no embedded credentials, no private/loopback/link-local
+  addresses or single-label hosts, not this service's own domain, and an operator blocklist
+  (`BLOCKED_DESTINATION_HOSTS`). No outbound requests are made, so there is no SSRF surface.
+  Reputation checks (e.g. Google Safe Browsing) are not implemented.
+- **HTTP hardening:** helmet headers, explicit CORS allowlist, 16 KB JSON body limit, 15 s
+  request timeout. Client errors from middleware (413, malformed JSON) are answered as 4xx
+  without being logged as server errors; unexpected errors return a generic 500.
 - **Logging:** `nestjs-pino`, JSON in production, pretty in development. Request logs keep only
   `id`, `method`, `url`, `statusCode` — no headers, cookies or client IPs. `x-request-id` is
   propagated when well-formed, otherwise a UUID is generated and returned in the response.

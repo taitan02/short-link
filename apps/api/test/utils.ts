@@ -1,6 +1,7 @@
 import { Test, TestingModuleBuilder } from '@nestjs/testing';
 import { NestExpressApplication } from '@nestjs/platform-express';
 import { PrismaService, ShortLink, User } from '@short-link/prisma';
+import request from 'supertest';
 import { AppModule } from '../src/app.module';
 import { configureApp } from '../src/app.setup';
 
@@ -41,4 +42,36 @@ export function createLink(
       ...data,
     },
   });
+}
+
+let ipSeq = 0;
+
+/** A fresh client address, so IP-keyed rate limits from earlier requests don't interfere. */
+export function uniqueIp(): string {
+  ipSeq++;
+  return `198.18.${(ipSeq >> 8) & 255}.${ipSeq & 255}`;
+}
+
+export async function registerAndLogin(app: NestExpressApplication, email?: string) {
+  const credentials = {
+    email: email ?? `user${++userSeq}@example.com`,
+    password: 'correct horse battery staple',
+  };
+  const server = app.getHttpServer();
+  const ip = uniqueIp();
+  const registered = await request(server)
+    .post('/api/auth/register')
+    .set('X-Forwarded-For', ip)
+    .send(credentials)
+    .expect(201);
+  const login = await request(server)
+    .post('/api/auth/login')
+    .set('X-Forwarded-For', ip)
+    .send(credentials)
+    .expect(200);
+  return {
+    user: registered.body as { id: string; email: string },
+    token: (login.body as { accessToken: string }).accessToken,
+    credentials,
+  };
 }

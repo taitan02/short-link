@@ -1,12 +1,18 @@
 import { randomUUID } from 'node:crypto';
 import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
+import { APP_GUARD } from '@nestjs/core';
+import { ThrottlerModule, minutes } from '@nestjs/throttler';
 import { PrismaModule } from '@short-link/prisma';
 import { LoggerModule } from 'nestjs-pino';
+import { AuthModule } from './auth/auth.module';
+import { JwtAuthGuard } from './auth/jwt-auth.guard';
+import { AppThrottlerGuard } from './common/throttler.guard';
 import { Env, validateEnv } from './config/env';
 import { HealthModule } from './health/health.module';
 import { LinksModule } from './links/links.module';
 import { RedirectModule } from './redirect/redirect.module';
+import { UsersModule } from './users/users.module';
 
 // The header is client-controlled and ends up in every log line, so anything that could
 // inject into logs or blow up their size is replaced with a fresh id.
@@ -57,10 +63,20 @@ const REQUEST_ID_PATTERN = /^[\w-]{1,128}$/;
       inject: [ConfigService],
       useFactory: (config: ConfigService<Env, true>) => config.get('DATABASE_URL', { infer: true }),
     }),
+    // In-memory counters: correct for a single instance only. Moves to Redis in Phase 3 so
+    // limits hold across replicas.
+    ThrottlerModule.forRoot({ throttlers: [{ name: 'default', ttl: minutes(1), limit: 300 }] }),
     HealthModule,
+    AuthModule,
+    UsersModule,
     LinksModule,
     // Last: its GET /:code catch-all must not shadow other single-segment routes.
     RedirectModule,
+  ],
+  // Order matters: authentication first, so the throttler can key on the user.
+  providers: [
+    { provide: APP_GUARD, useExisting: JwtAuthGuard },
+    { provide: APP_GUARD, useClass: AppThrottlerGuard },
   ],
 })
 export class AppModule {}

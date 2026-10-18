@@ -9,7 +9,7 @@ import {
 import { ConfigService } from '@nestjs/config';
 import { Prisma, PrismaService, ShortLink } from '@short-link/prisma';
 import { Env } from '../config/env';
-import { parseDestinationUrl } from './destination-url';
+import { DestinationPolicy, parseDestinationUrl } from './destination-url';
 import {
   CreateLinkDto,
   LinkPageDto,
@@ -25,6 +25,7 @@ const MAX_CODE_ATTEMPTS = 5;
 export class LinksService {
   private readonly logger = new Logger(LinksService.name);
   private readonly publicBaseUrl: string;
+  private readonly destinationPolicy: DestinationPolicy;
 
   constructor(
     private readonly prisma: PrismaService,
@@ -32,6 +33,10 @@ export class LinksService {
     config: ConfigService<Env, true>,
   ) {
     this.publicBaseUrl = config.get('PUBLIC_BASE_URL', { infer: true });
+    this.destinationPolicy = {
+      publicOrigin: this.publicBaseUrl,
+      blockedHosts: config.get('BLOCKED_DESTINATION_HOSTS', { infer: true }),
+    };
   }
 
   async create(userId: string, dto: CreateLinkDto): Promise<LinkResponseDto> {
@@ -155,7 +160,7 @@ export class LinksService {
   }
 
   private destinationOrThrow(raw: string): string {
-    const result = parseDestinationUrl(raw, this.publicBaseUrl);
+    const result = parseDestinationUrl(raw, this.destinationPolicy);
     if (!result.ok) throw new BadRequestException(result.reason);
     return result.url;
   }

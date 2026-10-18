@@ -1,9 +1,14 @@
 import { Controller, Get, Logger, ServiceUnavailableException } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
+import { SkipThrottle } from '@nestjs/throttler';
 import { PrismaService } from '@short-link/prisma';
+import { Public } from '../auth/auth.decorators';
 
 const CHECK_TIMEOUT_MS = 1_000;
 
+// Probes must not need credentials, and must never be rate limited into failing.
+@Public()
+@SkipThrottle()
 @ApiTags('health')
 @Controller('health')
 export class HealthController {

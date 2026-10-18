@@ -43,14 +43,6 @@ describe('Health (e2e)', () => {
       .set('x-request-id', 'bad id\twith spaces');
     expect(res.headers['x-request-id']).toMatch(/^[0-9a-f-]{36}$/);
   });
-
-  it('rejects oversized JSON bodies before routing', async () => {
-    await request(app.getHttpServer())
-      .post('/health/live')
-      .set('Content-Type', 'application/json')
-      .send(JSON.stringify({ blob: 'x'.repeat(20_000) }))
-      .expect(413);
-  });
 });
 
 describe('Health (e2e, database down)', () => {

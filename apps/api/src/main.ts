@@ -15,6 +15,12 @@ async function bootstrap() {
 
   const config = app.get<ConfigService<Env, true>>(ConfigService);
   await app.listen(config.get('PORT', { infer: true }));
+
+  // Node's defaults (5 min per request) let slow clients hold sockets open; nothing this API
+  // does legitimately takes more than a few seconds.
+  const server = app.getHttpServer();
+  server.requestTimeout = 15_000;
+  server.headersTimeout = 10_000;
 }
 
 void bootstrap();
